@@ -1,3 +1,7 @@
+from inbox.models.message import Message
+from inbox.log import get_logger
+log = get_logger()
+
 def reconcile_message(new_message, session):
     """
     Check to see if the (synced) Message instance new_message was originally
@@ -9,7 +13,10 @@ def reconcile_message(new_message, session):
     from inbox.models.message import Message
 
     if new_message.inbox_uid is None:
+        log.info("quasar|reconcile_message (-> new message!)", mid=new_message.inbox_uid)
         return None
+
+    log.info("quasar|reconcile_message (-> possibly existing message!)", mid=new_message.inbox_uid)
 
     if '-' not in new_message.inbox_uid:
         # Old X-Inbox-Id format; use the old reconciliation strategy.
@@ -31,7 +38,10 @@ def reconcile_message(new_message, session):
             Message.is_created == True).first()
 
     if existing_message is None:
+        log.info("quasar|reconcile_message (-> not an existing message!)", mid=new_message.inbox_uid)
         return None
+
+    log.info("quasar|reconcile_message (-> existing message!)", mid=new_message.inbox_uid)
 
     if version is None or int(version) == existing_message.version:
         existing_message.message_id_header = new_message.message_id_header

@@ -193,7 +193,13 @@ def get_recipients(recipients, field):
                 isinstance(r['email'], basestring)):
             raise InputError('Invalid {} field'.format(field))
         if 'name' in r and not isinstance(r['name'], basestring):
-            raise InputError('Invalid {} field'.format(field))
+            # NOTE: JOHNNY: Instead of raising hell, we just delete the
+            # key from the dict
+            #raise InputError('Invalid {} field'.format(field))
+            try:
+                del r['name']
+            except KeyError:
+                pass
 
     return [(r.get('name', ''), r.get('email', '')) for r in recipients]
 

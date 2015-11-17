@@ -1,3 +1,5 @@
+import os
+import traceback
 import json
 import datetime
 import itertools
@@ -22,10 +24,14 @@ from inbox.models.base import MailSyncBase
 from inbox.models.namespace import Namespace
 from inbox.security.blobstorage import encode_blob, decode_blob
 
-
+import privipk
+from privipk.keys import PublicKey
 from inbox.log import get_logger
 log = get_logger()
 
+from inbox.crypto.crypto import crypto_privkey_get_mine, crypto_get_kls,\
+    crypto_pubkey_get_mine, crypto_symkey_unwrap, crypto_symkey_decrypt,\
+    X_QUASAR_ENCRYPTED, X_QUASAR_ENCRYPTED_YES, X_QUASAR_WRAPPEDKEYS
 
 def _trim_filename(s, mid, max_len=64):
     if s and len(s) > max_len:
@@ -142,6 +148,62 @@ class Message(MailSyncBase, HasRevisions, HasPublicID):
         return value
 
     @classmethod
+    # NOTE: QUASAR: This sort of emulates _parse_mime_part, so if that method changes
+    # this needs to change as well.
+    def decrypt_email(cls, account, mid, parsed):
+        kls_client = crypto_get_kls()
+        myemail = account.email_address.encode('utf-8')
+        from_email = parse_mimepart_address_header(parsed, "From")[0][1].encode('utf-8')
+        log.info("quasar|decrypt_email", from_email=from_email)
+        
+        # TODO: versioning of keys
+        mysk = crypto_privkey_get_mine(account)
+        # TODO: versioning of keys
+        mypk = crypto_pubkey_get_mine(account)        
+        # TODO: versioning of keys
+        pkstr = kls_client.get(from_email)
+        if pkstr is None:
+            raise LookupError("Could not lookup public key for " + from_email)
+        their_pk = PublicKey.unserialize(privipk.parameters.default, pkstr)
+        wrappedkeys = parsed.headers.get(X_QUASAR_WRAPPEDKEYS).encode('utf-8')
+        
+        log.debug("quasar|decrypt_email", myemail=myemail, from_email=from_email, subjectType=type(parsed.subject))
+        symkey = crypto_symkey_unwrap(wrappedkeys, theirpk=their_pk, theiremail=from_email, mysk=mysk, mypk=mypk, myemail=myemail)
+
+        parsed.headers['Subject'] = crypto_symkey_decrypt(symkey, unicode(parsed.subject).encode('utf-8')).decode('utf-8')
+
+        for mimepart in parsed.walk(with_self=parsed.content_type.is_singlepart()):
+            if mimepart.content_type.is_multipart():
+                log.warning('multipart sub-part found', account_id=account.id)
+                continue  # TODO should we store relations?
+
+            # TODO: QUASAR: assuming disposition_params is returned by reference
+            # so that the code below can modify it
+            disposition, disposition_params = mimepart.content_disposition
+
+            if disposition is not None and disposition == 'attachment':
+                disposition_params['filename'] = _trim_filename(
+                    disposition_params.get('filename'), mid)
+
+            # TODO: QUASAR: Not sure if what I'm doing here is correct.
+            # Seems to work for the message part of the email. Need to
+            # test it for attachments
+            if mimepart.body is not None:# and mimepart.content_type.value.startswith('text'):
+                log.debug("quasar|decrypt_email", bodyType=type(mimepart.body))
+                body = crypto_symkey_decrypt(symkey, unicode(mimepart.body).encode('utf-8'))
+                if disposition is not None and disposition == 'attachment':
+                    mimepart.body = body
+                else:
+                    mimepart.body = body.decode('utf-8')
+
+        return parsed
+
+    # Creates a message in the local DB from a synced message from IMAP
+    # it gets called when we receive a message
+    # ...or when we draft a message, or send a message b.c. that message
+    # will be first stored in IMAP via other means and then picked up
+    # by the sync service, which calls this
+    @classmethod
     def create_from_synced(cls, account, mid, folder_name, received_date,
                            body_string):
         """
@@ -162,6 +224,8 @@ class Message(MailSyncBase, HasRevisions, HasPublicID):
             The full message including headers (encoded).
 
         """
+        log.info("quasar|create_from_synced", mid=mid, folder_name=folder_name)#, body_string=body_string)
+
         _rqd = [account, mid, folder_name, body_string]
         if not all([v is not None for v in _rqd]):
             raise ValueError(
@@ -174,16 +238,24 @@ class Message(MailSyncBase, HasRevisions, HasPublicID):
         msg = Message()
 
         from inbox.models.block import Block, Part
-        body_block = Block()
-        body_block.namespace_id = account.namespace.id
-        body_block.data = body_string
-        body_block.content_type = "text/plain"
-        msg.full_body = body_block
 
         msg.namespace_id = account.namespace.id
 
         try:
             parsed = mime.from_string(body_string)
+
+            # QUASAR: Check if the email is encrypted
+            is_encrypted = (parsed.headers.get(X_QUASAR_ENCRYPTED) == X_QUASAR_ENCRYPTED_YES)
+            log.debug("quasar|create_from_synced", is_encrypted=is_encrypted)
+            if is_encrypted:
+                parsed = Message.decrypt_email(account, mid, parsed)
+                body_string = parsed.to_string()
+
+            body_block = Block()
+            body_block.namespace_id = account.namespace.id
+            body_block.data = body_string
+            body_block.content_type = "text/plain"
+            msg.full_body = body_block
 
             i = 0  # for walk_index
 
@@ -201,7 +273,8 @@ class Message(MailSyncBase, HasRevisions, HasPublicID):
                 ValueError) as e:
             parsed = None
             log.error('Error parsing message metadata',
-                      folder_name=folder_name, account_id=account.id, error=e)
+                      folder_name=folder_name, account_id=account.id, error=e,
+                      traceback=traceback.format_exc())
             msg._mark_error()
 
         if parsed is not None:

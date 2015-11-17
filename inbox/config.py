@@ -3,7 +3,6 @@ import os
 import yaml
 from urllib import quote_plus as urlquote
 
-
 __all__ = ['config', 'engine_uri', 'db_uri']
 
 

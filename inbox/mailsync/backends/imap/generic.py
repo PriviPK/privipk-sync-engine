@@ -415,9 +415,12 @@ class FolderSyncEngine(Greenlet):
                     log.debug('throttled; sleeping')
                     sleep(THROTTLE_WAIT)
 
+    # This calls create_imap_message, which calls create_from_synced 
+    # 'msg' is a RawMessage object.
+    # This gets called when messages from IMAP are synced to the DB
     def create_message(self, db_session, acct, folder, msg):
         assert acct is not None and acct.namespace is not None
-
+        log.info("quasar|create_message", folder=folder.name)#, msg=msg)
         # Check if we somehow already saved the imapuid (shouldn't happen, but
         # possible due to race condition). If so, don't commit changes.
         existing_imapuid = db_session.query(ImapUid).filter(

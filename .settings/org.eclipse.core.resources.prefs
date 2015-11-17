@@ -1,0 +1,4 @@
+eclipse.preferences.version=1
+encoding//inbox/actions/backends/generic.py=utf-8
+encoding//inbox/mailsync/backends/imap/generic.py=utf-8
+encoding//tests/general/test_message_parsing.py=utf-8

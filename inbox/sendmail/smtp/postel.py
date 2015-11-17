@@ -340,7 +340,8 @@ class SMTPClient(object):
             raise SendMailException('Sending failed', http_code=503,
                                     server_error=str(err))
 
-    def send(self, draft):
+    # TODO: QUASAR: add an 'encrypt' param set to false by default
+    def send(self, draft, account=None):
         """
         Turn a draft object into a MIME message and send it.
 
@@ -349,7 +350,9 @@ class SMTPClient(object):
         draft : models.message.Message object
             the draft message to send.
         """
+        log.info("quasar|send", mid=draft.inbox_uid)
         blocks = [p.block for p in draft.attachments]
+
         attachments = generate_attachments(blocks)
         # @emfree - 3/19/2015
         #
@@ -368,6 +371,9 @@ class SMTPClient(object):
         # Note that we ensure in our SMTP code BCCed recipients still actually
         # get the message.
 
+        # NOTE: QUASAR: Because SMTP servers copy sent emails to IMAP, we'll need to also wrap
+        # encryption keys under our own PK
+        #
         # from_addr is only ever a list with one element
         from_addr = draft.from_addr[0]
         msg = create_email(from_name=from_addr[0],
@@ -381,7 +387,9 @@ class SMTPClient(object):
                            html=draft.body,
                            in_reply_to=draft.in_reply_to,
                            references=draft.references,
-                           attachments=attachments)
+                           attachments=attachments,
+                           encrypt_just_for_me=False,
+                           account=account)
 
         recipient_emails = [email for name, email in itertools.chain(
             draft.to_addr, draft.cc_addr, draft.bcc_addr)]

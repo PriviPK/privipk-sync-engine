@@ -4,6 +4,8 @@ from inbox.crispin import writable_connection_pool, retry_crispin
 from inbox.models.backends.imap import ImapThread
 from inbox.actions.backends.imap import syncback_action
 from sqlalchemy.orm import load_only
+from inbox.log import get_logger
+log = get_logger()
 
 PROVIDER = 'gmail'
 
@@ -141,6 +143,7 @@ def _remote_copy(account, thread_id, from_folder, to_folder, db_session):
 
 
 def remote_save_draft(account, folder_name, message, db_session, date=None):
+    log.info("quasar|remote_save_draft (gmail)", folder_name=folder_name)#, message=message)
     def fn(account, db_session, crispin_client):
         assert folder_name == crispin_client.folder_names()['drafts']
         crispin_client.save_draft(message, date)

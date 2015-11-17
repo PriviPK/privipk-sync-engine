@@ -312,6 +312,8 @@ class GmailFolderSyncEngine(CondstoreFolderSyncEngine):
         # because we have All Mail selected and don't have the UIDVALIDITY for
         # the folder we're actually downloading messages for.
 
+    # NOTE: JOHNNY: This is where Gmail downloads messages from its server
+    # Newly received emails are also downloaded here 
     def __download_thread(self, crispin_client, thread_g_metadata, g_thrid,
                           thread_uids):
         """

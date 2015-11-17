@@ -2,6 +2,7 @@ import platform
 
 import gevent
 from setproctitle import setproctitle
+import traceback
 
 from inbox.providers import providers
 from inbox.config import config
@@ -15,6 +16,7 @@ from inbox.util.debug import attach_profiler
 from inbox.util.rdb import break_to_interpreter
 
 from inbox.mailsync.backends import module_registry
+from inbox.crypto.crypto import crypto_get_kls
 
 
 class SyncService(object):
@@ -51,7 +53,9 @@ class SyncService(object):
         self.contact_sync_monitors = {}
         self.event_sync_monitors = {}
         self.poll_interval = poll_interval
-
+        
+        self.dht_host = config.get('DHT_NODE_HOST', 'localhost')
+        
     def run(self):
         if config.get('DEBUG_PROFILING_ON'):
             # If config flag is set, get live top-level profiling output on
@@ -101,6 +105,7 @@ class SyncService(object):
         Polls for newly registered accounts and checks for start/stop commands.
 
         """
+        
         while self.keep_running:
             # Determine which accounts need to be started
             start_accounts = self.accounts_to_start()
@@ -167,6 +172,19 @@ class SyncService(object):
                                                acc.namespace.id)
                         self.event_sync_monitors[acc.id] = event_sync
                         event_sync.start()
+                        
+                    # QUASAR: the sync service will publish the user's public key in the DHT
+                    # when sync is starting to make sure it is there for others
+                    #
+                    # TODO: CRYPTO: in a real world deployment keys would have to only be published
+                    # once by the KGC (or upon an authenticated request by the user) and the 
+                    # DHT has to be able to persist keys for a long enough time
+                    kls_client = crypto_get_kls()
+                    pkstr = kls_client.get(acc.email_address)
+                    newpkstr = acc.public_key.encode('utf-8')
+                    if pkstr != newpkstr:
+                        self.log.info("quasar|upload_pubkey", email=acc.email_address, newpkstr=newpkstr)
+                        kls_client.put(acc.email_address, newpkstr)
 
                     acc.sync_started()
                     db_session.add(acc)
@@ -175,7 +193,7 @@ class SyncService(object):
                                   sync_host=fqdn)
                 except Exception as e:
                     self.log.error('sync_error', message=str(e.message),
-                                   account_id=account_id)
+                                   account_id=account_id, traceback=traceback.format_exc())
             else:
                 self.log.info('sync already started', account_id=account_id)
 

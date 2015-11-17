@@ -3,6 +3,7 @@ import os
 import sys
 import signal
 import click
+from inbox.crypto.crypto import _crypto_init_kls, crypto_test_kls
 
 # Check that the inbox package is installed. It seems Vagrant may sometimes
 # fail to provision the box appropriately; this check is a reasonable
@@ -72,6 +73,10 @@ def start(port, start_syncback):
 
     # Catch SIGTERM so that we can gracefully exit
     signal.signal(signal.SIGTERM, signal_handler)
+    
+    # QUASAR: intialize the KLS client
+    _crypto_init_kls(config)
+    crypto_test_kls()
 
     if start_syncback:
         # start actions service

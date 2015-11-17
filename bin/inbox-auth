@@ -11,6 +11,12 @@ from inbox.models.session import session_scope
 from inbox.models import Account
 from inbox.basicauth import NotSupportedError
 from inbox.log import configure_logging
+from inbox.config import config
+
+from kgc.client import KgcRpcClient
+import privipk
+from privipk.keys import LongTermPublicKey, LongTermSecretKey, KeyPair
+from kgc.common import KGC_PORT
 
 configure_logging()
 
@@ -19,9 +25,12 @@ configure_logging()
 @click.argument('email_address')
 @click.option('--reauth', is_flag=True,
               help='Re-authenticate an account even if it already exists')
-def main(email_address, reauth):
+@click.argument('kgc_address')#, help="The address (host:port) of the key-issuing authority to get a certificate from")
+def main(email_address, kgc_address, reauth):
     """ Auth an email account. """
     preflight()
+
+    #print " *** config[kgc_public_key]: " + config.get('KGC_PUBLIC_KEY', 'none!')
 
     with session_scope() as db_session:
         account = db_session.query(Account).filter_by(
@@ -46,6 +55,55 @@ def main(email_address, reauth):
 
         try:
             if auth_handler.verify_account(account):
+                #
+                # QUASAR: Here we generate a keypair and register it with the KLS
+                #
+                
+                # Initialize the KGC client and its public key
+                params = privipk.parameters.default
+                kgc_pk = LongTermPublicKey.unserialize(params, config.get_required('KGC_PUBLIC_KEY'))
+                kgc_host = config.get_required('KGC_HOST')
+                kgc_port = config.get('KGC_PORT')
+                kgc_port = kgc_port if kgc_port is not None else KGC_PORT
+                 
+                # Create an RPC client for the KGC and check if KGC is alive
+                kgc_client = KgcRpcClient(kgc_host, kgc_port)
+                beat, _ = kgc_client.heartbeat(beat="hello mate")
+                if beat != "hello mate":
+                    raise RuntimeError("Could not talk to the KGC at '" + kgc_host + ":" + kgc_port + "'")
+                
+                # Must get authentication token from KGC first via email and then pass it in here
+                # TODO: QUASAR: This must be done via email
+                email_addr = account.email_address.encode('utf-8')
+                tok = kgc_client.request_auth_token(email_addr)
+                
+                # First we generate a long term public key
+                lts = LongTermSecretKey(params)
+                signer = lts.getSigner()
+                r_c = signer.getR()
+                
+                svSig = kgc_client.sign_identity(r_c, email_addr, tok)
+                if svSig is None:
+                    raise RuntimeError("Failed to get KGC signature on email identity")
+                
+                # We verify the KGC's signature on our identity
+                r_hashed = r_c * svSig.getR()
+                verifier = kgc_pk.getVerifier(svSig)
+                verifier.setHashedR(r_hashed)
+                if not verifier.verify(email_addr):
+                    raise RuntimeError("Incorrect signature from KGC on email '" + email_addr + "'")
+                
+                # Now we 'cosign' our identity with the KGC 
+                signer.setHashedR(r_hashed)
+                mySig = signer.sign(email_addr)
+                kp = KeyPair.create(params, lts, kgc_pk, signer, mySig, svSig)
+
+                # Next, we store the public and private keypair in our database
+                # TODO: need to have versions for these keys, since there could
+                # be more than one
+                account.secret_key = kp.getSecretKey().serialize()
+                account.public_key = kp.getPublicKey().serialize()
+
                 db_session.add(account)
                 db_session.commit()
         except NotSupportedError as e:

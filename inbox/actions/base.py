@@ -114,9 +114,11 @@ def unmark_trash(account_id, thread_id, db_session):
         set_remote_trash
     set_remote_trash(account, thread_id, False, db_session)
 
-
 def _create_email(account, message):
+    log.info("quasar|_create_email", mid=message.inbox_uid)
+
     blocks = [p.block for p in message.attachments]
+
     attachments = generate_attachments(blocks)
     from_name, from_email = message.from_addr[0]
     msg = create_email(from_name=from_name,
@@ -130,15 +132,20 @@ def _create_email(account, message):
                        html=message.body,
                        in_reply_to=message.in_reply_to,
                        references=message.references,
-                       attachments=attachments)
+                       attachments=attachments,
+                       encrypt_just_for_me=True,
+                       account=account)    # only encrypt this email under my public key
     return msg
 
-
+# Q: Does this get sent by the sync-engine to the server?
+# A: Yes, it calls remote_save_draft which calls crispin, which saves the draft on IMAP
 def save_draft(account_id, message_id, db_session, args):
     """ Sync a new/updated draft back to the remote backend. """
     account = db_session.query(Account).get(account_id)
     message = db_session.query(Message).get(message_id)
+
     version = args.get('version')
+
     if message is None:
         log.info('tried to save nonexistent message as draft',
                  message_id=message_id, account_id=account_id)
@@ -151,6 +158,8 @@ def save_draft(account_id, message_id, db_session, args):
     if version != message.version:
         log.warning('tried to save outdated version of draft')
         return
+
+    log.info("quasar|save_draft", mid=message.inbox_uid, version=version)#message=message)
 
     if account.drafts_folder is None:
         # account has no detected drafts folder - create one.
@@ -173,12 +182,20 @@ def delete_draft(account_id, draft_id, db_session, args):
     """
     inbox_uid = args.get('inbox_uid')
     message_id_header = args.get('message_id_header')
+    log.info("quasar|delete_draft", mid=inbox_uid)
     assert inbox_uid or message_id_header, 'Need at least one header value'
     account = db_session.query(Account).get(account_id)
     remote_delete_draft = module_registry[account.provider].remote_delete_draft
     remote_delete_draft(account, inbox_uid, message_id_header, db_session)
 
-
+# NOTE: JOHNNY: This gets called to sync up sent messages with bad IMAP providers
+# like iCloud.
+# NOTE: JOHNNY: It looks like Gmail & friends rely on their SMTP servers to
+# pick up sent emails and add them to the IMAP sent folder. This is a problem
+# for encrypted email because the sent emails are encrypted under the key of
+# the recipient, which means we can't decrypt them =>
+# => also wrap the symmetric key under our public key for sent
+# emails, so that when the sync service picks them up, we can decrypt them
 def save_sent_email(account_id, message_id, db_session):
     """
     Create an email on the remote backend. Only used to work
@@ -188,6 +205,7 @@ def save_sent_email(account_id, message_id, db_session):
     """
     account = db_session.query(Account).get(account_id)
     message = db_session.query(Message).get(message_id)
+    log.info("quasar|save_sent_email", mid=message_id)#message=message)
     if message is None:
         log.info('tried to create nonexistent message',
                  message_id=message_id, account_id=account_id)
@@ -201,6 +219,8 @@ def save_sent_email(account_id, message_id, db_session):
         account.sent_folder = sent_folder
         create_backend_sent_folder = True
 
+    # NOTE: JOHNNY: need to encrypt this message under my public key before
+    # i send it to the server. This will be done in _create__email
     mimemsg = _create_email(account, message)
     remote_save_sent = module_registry[account.provider].remote_save_sent
     remote_save_sent(account, account.sent_folder.name,

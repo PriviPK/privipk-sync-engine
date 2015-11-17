@@ -57,7 +57,8 @@ set +e
 apt-get update
 set -e
 
-apt-get -y install python-software-properties
+apt-get -y install python-software-properties expect-dev\
+    vim subversion
 
 
 { \
@@ -199,7 +200,16 @@ if [ -d "../inbox-eas" ]; then
     python ../inbox-eas/bin/create-test-db
 fi
 
+./install-entangled.sh
+
+color '35;1' 'Installing PriviPK...'
+./install-privipk.sh
+
+color '35;1' 'Setting up KLS and KGC /etc/hosts entries'
+./install-hosts.sh
+
 color '35;1' 'Finished installing dependencies.'
+
 
 mkdir -p /etc/inboxapp
 chown $SUDO_UID:$SUDO_GID /etc/inboxapp

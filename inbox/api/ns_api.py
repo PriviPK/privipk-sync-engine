@@ -1,4 +1,6 @@
 import os
+import sys
+import traceback
 import base64
 import email.header
 import uuid
@@ -815,6 +817,8 @@ def file_upload_api():
         f.namespace = g.namespace
         f.content_type = uploaded.content_type
         f.filename = uploaded.filename
+        # NOTE: JOHNNY: The Nylas docs suggest raw data is being uploaded so
+        # we should be reading out raw data as well here
         f.data = uploaded.read()
         all_files.append(f)
 
@@ -983,13 +987,18 @@ def draft_get_api(public_id):
 @app.route('/drafts/', methods=['POST'])
 def draft_create_api():
     data = request.get_json(force=True)
+    g.log.info("quasar|draft_create_api", data=data)
     try:
         draft = create_draft(data, g.namespace, g.db_session, syncback=True)
         g.db_session.add(draft)
         g.db_session.commit()
     except ActionError as e:
+        g.log.error("quasar|draft_create_api", error=str(e), traceback=traceback.format_exc())
         return err(e.error, str(e))
-
+    except:
+        g.log.error("quasar|draft_create_api", traceback=traceback.format_exc())
+        return err(500, "no clue")
+        
     return g.encoder.jsonify(draft)
 
 
@@ -1045,19 +1054,30 @@ def draft_delete_api(public_id):
     return g.encoder.jsonify(result)
 
 
+# This is what gets called when a draft email is sent out.
+# The 'draft' variable is of type Message, so we can easily extract the body (I think)
+# The caller can call this with an existing saved draft in the DB or with 
+# a new draft passed as a parameter. Encryption is done after we call send_draft
 @app.route('/send', methods=['POST'])
 def draft_send_api():
     data = request.get_json(force=True)
     draft_public_id = data.get('draft_id')
+    g.log.info("quasar|draft_send_api", data=data)#, draft=draft)
+    
     if draft_public_id is not None:
+        g.log.info("quasar|draft_send_api (-> get_draft)", data=data)#, draft=draft)
         draft = get_draft(draft_public_id, data.get('version'), g.namespace.id,
                           g.db_session)
         validate_draft_recipients(draft)
         resp = send_draft(g.namespace.account, draft, g.db_session,
                           schedule_remote_delete=True)
     else:
+        g.log.info("quasar|draft_send_api (-> create_draft)", data=data)#, draft=draft)
+        # NOTE: JOHNNY: This saves the draft in IMAP (not just save it via SMTP)
         draft = create_draft(data, g.namespace, g.db_session, syncback=False)
         validate_draft_recipients(draft)
+        # NOTE: JOHNNY: For certain providers, the draft will be saved in send_draft by scheduling
+        # a save_sent_email action
         resp = send_draft(g.namespace.account, draft, g.db_session,
                           schedule_remote_delete=False)
         if resp.status_code == 200:

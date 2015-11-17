@@ -1,3 +1,7 @@
+/libprivipk
+# Markdown's HTML files
+/TODO.html
+/README.html
 # Inbox-specific
 /packer_cache
 /log
@@ -68,8 +72,6 @@ nosetests.xml
 
 # Mr Developer
 .mr.developer.cfg
-.project
-.pydevproject
 
 # Editor temporary files
 *.swp
@@ -81,3 +83,4 @@ TAGS
 
 # directory used to store build files
 setup/
+/*.log

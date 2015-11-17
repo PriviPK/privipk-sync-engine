@@ -7,6 +7,8 @@ from inbox.contacts.process_mail import update_contacts_from_message
 from inbox.models import Message, Part
 from inbox.models.action_log import schedule_action
 from inbox.sqlalchemy_ext.util import generate_public_id
+from inbox.log import get_logger
+log = get_logger()
 
 
 class SendMailException(Exception):
@@ -177,12 +179,19 @@ def create_draft(data, namespace, db_session, syncback):
         for tag in tags:
             thread.apply_tag(tag)
 
+        # This will send our plaintext draft to the server, so
+        # it seems we need to encrypt? When the 'save__draft' action
+        # is scheduled, we take care of it there
         if syncback:
+            log.info("quasar|create_draft (-> schedule_action('save_draft'))", mid=message.inbox_uid, subject=subject, syncback=syncback)#, draft=message)
             schedule_action('save_draft', message, namespace.id, db_session,
                             version=message.version)
+        else:
+            log.info("quasar|create_draft (no save_draft scheduled)", mid=message.inbox_uid, subject=subject, syncback=syncback)#, draft=message)
         return message
 
-
+# This gets called when sending a draft (not clear why). Either way
+# the draft is in the DB (unencrypted), so whatever this does we're okay.
 def update_draft(db_session, account, draft, to_addr=None,
                  subject=None, body=None, blocks=None, cc_addr=None,
                  bcc_addr=None, from_addr=None, reply_to=None, tags=None):
@@ -258,6 +267,9 @@ def update_draft(db_session, account, draft, to_addr=None,
     draft.regenerate_inbox_uid()
 
     # Sync to remote
+    # NOTE: JOHNNY: This will send our plaintext draft to the server, so
+    # it seems we need to encrypt? Yes, and save__draft takes care of it
+    log.info("quasar|update_draft (-> schedule_action('save_draft'))")#, draft=draft)
     schedule_action('save_draft', draft, draft.namespace.id, db_session,
                     version=draft.version)
     # Delete previous version on remote
@@ -292,7 +304,6 @@ def delete_draft(db_session, account, draft):
         thread.remove_tag(namespace.tags['drafts'])
 
     db_session.commit()
-
 
 def generate_attachments(blocks):
     attachment_dicts = []

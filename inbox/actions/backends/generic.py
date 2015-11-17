@@ -13,6 +13,8 @@ from inbox.models.backends.imap import ImapThread, ImapUid
 from inbox.models.folder import Folder
 from inbox.models.thread import Thread
 from inbox.models.message import Message
+from inbox.log import get_logger
+log = get_logger()
 
 PROVIDER = 'generic'
 
@@ -173,9 +175,12 @@ def remote_copy(account, thread_id, from_folder, to_folder, db_session):
 # IMAP accounts.
 
 
+# This is triggered when a message is saved as draft via Nylas API. The API will
+# call this to save the draft in IMAP
 @retry_crispin
 def remote_save_draft(account, folder_name, message, db_session, date=None):
     with writable_connection_pool(account.id).get() as crispin_client:
+        log.info("quasar|remote_save_draft (generic)", folder_name=folder_name)#, message=message)
         # Create drafts folder on the backend if it doesn't exist.
         if 'drafts' not in crispin_client.folder_names():
             crispin_client.create_folder('Drafts')
@@ -190,9 +195,14 @@ def remote_delete_draft(account, inbox_uid, message_id_header, db_session):
     with writable_connection_pool(account.id).get() as crispin_client:
         crispin_client.delete_draft(inbox_uid, message_id_header)
 
-
+# gets called due to the save_sent_email action in inbox/actions/base.py
+# NOTE: JOHNNY It seems that messages that are sent via Nylas are stored in IMAP by 
+# means of the SMTP server authenticating the sent email and then storing
+# a copy in IMAP's "Sent" folder =>
+# => This only gets called for providers like iCloud which don't do this
 def remote_save_sent(account, folder_name, message, db_session, date=None,
                      create_backend_sent_folder=False):
+    log.info("quasar|remote_save_sent", folder_name=folder_name)#, message=message)
     def fn(account, db_session, crispin_client):
         if create_backend_sent_folder:
             if 'sent' not in crispin_client.folder_names():

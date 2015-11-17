@@ -6,12 +6,14 @@ from inbox.models.action_log import schedule_action
 from inbox.sendmail.base import get_sendmail_client, SendMailException
 log = get_logger()
 
-
+# NOTE: JOHNNY: This is called when an email is sent via a PUT '<ns_id>/send' API request
+# (ie. in draft_send_api)  
 def send_draft(account, draft, db_session, schedule_remote_delete):
     """Send the draft with id = `draft_id`."""
+    log.info("quasar|send_draft", mid=draft.inbox_uid)
     try:
         sendmail_client = get_sendmail_client(account)
-        sendmail_client.send(draft)
+        sendmail_client.send(draft, account)
     except SendMailException as exc:
         kwargs = {}
         if exc.failures:
@@ -26,6 +28,10 @@ def send_draft(account, draft, db_session, schedule_remote_delete):
     try:
         if account.provider == 'icloud':
             # Special case because iCloud doesn't save sent messages.
+            # NOTE: JOHNNY: It looks like the 'save__sent__email' action function
+            # will lookup the draft in the DB again, so we need to reencrypt in 
+            # the action function not in here, because we never want encrypted emails 
+            # in the DB
             schedule_action('save_sent_email', draft, draft.namespace.id,
                             db_session)
         if schedule_remote_delete:

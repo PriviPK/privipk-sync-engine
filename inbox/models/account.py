@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (Column, Integer, String, DateTime, Boolean, ForeignKey,
-                        Enum)
+                        Enum, Text)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.expression import true, false
 
@@ -46,6 +46,10 @@ class Account(MailSyncBase, HasPublicID, HasEmailAddress):
     def thread_cls(self):
         from inbox.models.thread import Thread
         return Thread
+    
+    # QUASAR: Public and secret key fields
+    secret_key = Column(Text(65536), nullable=False)
+    public_key = Column(Text(65536), nullable=False)
 
     # The default phrase used when sending mail from this account.
     name = Column(String(256), nullable=False, server_default='')
