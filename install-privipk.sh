@@ -5,7 +5,7 @@ echo "Note: This script is to be run inside the VM"
 [ -d /vagrant ] || { echo "ERROR: You are not in the VM!"; exit 1; }
 
 if [ ! -f libprivipk/src/setup.py ]; then
-    git clone git@gitlab.com:johnnycanencrypt/libprivipk.git
+    git clone git@github.com:PriviPK/libprivipk.git
 fi
 
 cd libprivipk/
