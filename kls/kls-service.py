@@ -83,7 +83,7 @@ def testDht(port):
     count = count if count is not None else '0'
     count = str(int(count) + 1)
     client.put('count', count)
-    #print "Updated count to", count
+    print "Updated count to", count
 
 
 if __name__ == '__main__':

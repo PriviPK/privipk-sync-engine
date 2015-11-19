@@ -69,9 +69,9 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
       # forwards the sync engine port 5555 so that it can be accessed by remote
       # clients. we need this for our demo.
-      machine.vm.network "forwarded_port", guest: 5555+idx, host: 5555+idx, host_ip: "0.0.0.0"
+      #machine.vm.network "forwarded_port", guest: 5555+idx, host: 5555+idx, host_ip: "0.0.0.0"
       # forwards UDP port 9000 for the DHT node running in the VM
-      machine.vm.network "forwarded_port", guest: 9000+idx, host: 9000+idx, protocol: "udp"
+      #machine.vm.network "forwarded_port", guest: 9000+idx, host: 9000+idx, protocol: "udp"
       # ElasticSearch port
       machine.vm.network "forwarded_port", guest: 9200+idx, host: 9200+idx, host_ip: "127.0.0.1"
 
